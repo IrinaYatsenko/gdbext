@@ -1,7 +1,7 @@
 # My extensions for gdb
 
-def print_with_lead(str, lead):
-  print(" "*lead + str)
+def print_with_lead(val, lead, spaces_per_lead = 2):
+  print(" " * lead * spaces_per_lead + str(val))
 
 
 def is_pointer(var_type):
@@ -20,7 +20,7 @@ def get_type(var):
       deref_count += 1
       base_type = base_type.target()
   
-  return base_type.name + '*'*deref_count
+  return str(base_type.name) + '*'*deref_count
  
 
 def get_deref_value(var):
@@ -35,13 +35,12 @@ def get_deref_value(var):
   return deref
 
 
-def dt_value(var, print_type, lead):
+def dt_value(var, print_type, depth, depth_limit):
   ''' recursively print out offsets, names, values and types of fields in var '''
-  #print('DEBUG: ' + str(var.type.name) + ' at ' + str(lead))
+  #print('DEBUG: ' + str(var.type.name) + ' at ' + str(depth))
   
-  base_type = get_type(var)
   if print_type:
-      print_with_lead(base_type + ' at ' + str(var.address), lead)
+      print_with_lead(get_type(var) + ' at ' + str(var.address), depth)
 
   if is_pointer(var.type):
       deref = var
@@ -51,24 +50,27 @@ def dt_value(var, print_type, lead):
               seq = seq + '->' + str(deref)
               deref = deref.dereference()
           
-          print_with_lead(seq, lead)
-          dt_value(deref, False, lead)
-      except:
+          print_with_lead(seq, depth)
+          dt_value(deref, False, depth, depth_limit)
+      except Exception as e:
+          #print('DEBUG: ' + str(e))
           pass
-          #print_with_lead(str(deref), lead)
   else:
     if has_fields(var.type): 
-      fields = [(f.bitpos, f.name, var[f.name]) for f in var.type.fields()]
+      # static fields and enums don't affect layout of the type and don't have
+      # 'bitpos' property, so let's skip them for now (todo: output them separately?)
+      # todo: dump info about base class
+      fields = [(f.bitpos, f.name, var[f.name]) for f in var.type.fields() 
+                if not f.is_base_class and hasattr(f, 'bitpos')]
       for f in fields:
-          print_with_lead('['+hex(f[0])+']'+' : '+f[1]+' : '+str(f[2]), lead)
-          dt_value(f[2], True, lead + 2)
-    #else:
-    #  print_with_lead(str(var), lead)
+          print_with_lead('['+hex(f[0])+']'+' '+f[1]+' : '+str(f[2])[:32]+'...', depth)
+          if depth < depth_limit:
+            dt_value(f[2], True, depth + 1, depth_limit)
 
 
-def dt(var_name):
+def dt(var_name, depth_limit = 1):
   frame = gdb.selected_frame()
   var = frame.read_var(var_name)
-  dt_value(var, print_type = True, lead = 0)
+  dt_value(var, print_type = True, depth = 0, depth_limit = depth_limit)
 
 
